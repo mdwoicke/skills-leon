@@ -5,6 +5,7 @@
 // Preview:            node --env-file=.env scripts/delete-workers.mjs
 // Delete all free:    node --env-file=.env scripts/delete-workers.mjs --yes
 // Keep some workers:  node --env-file=.env scripts/delete-workers.mjs --keep claude-01 --yes
+// Only some workers:  node --env-file=.env scripts/delete-workers.mjs claude-01 codex-01 --yes
 //
 // Afterwards run scripts/provision-workers.mjs --yes to create them again.
 import { Box } from "@upstash/box"
@@ -15,9 +16,12 @@ const args = process.argv.slice(2)
 const confirmed = args.includes("--yes")
 const keepIndex = args.indexOf("--keep")
 const keep = keepIndex >= 0 ? args[keepIndex + 1].split(",") : []
+const only = args.filter((a, i) => !a.startsWith("--") && (keepIndex < 0 || i !== keepIndex + 1))
 
 const states = await getWorkerStates(loadConfig())
-const targets = states.filter((w) => w.boxId && w.state !== "busy" && !keep.includes(w.id))
+const unknown = only.filter((id) => !states.some((w) => w.id === id))
+if (unknown.length) throw new Error(`Unknown worker id: ${unknown.join(", ")}. Known workers: ${states.map((w) => w.id).join(", ")}`)
+const targets = states.filter((w) => w.boxId && w.state !== "busy" && !keep.includes(w.id) && (only.length === 0 || only.includes(w.id)))
 for (const w of states.filter((w) => w.boxId && !targets.includes(w))) console.log(`Keeping ${w.boxName} (${w.state})`)
 
 if (targets.length === 0) {

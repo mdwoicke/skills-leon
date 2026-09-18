@@ -19,7 +19,8 @@ The SDK reads `UPSTASH_BOX_API_KEY` from the environment.
 import { Box } from "@upstash/box"
 
 // Create. `timeout` is the SDK's request timeout in ms (default 600000).
-const box = await Box.create({ name, labels: ["factory"], runtime: "node", timeout })
+// `browser: true` is the only way a Box ever gets browser access.
+const box = await Box.create({ name, labels: ["factory"], runtime: "node", browser: true, timeout })
 
 // Find again later, from any process
 const boxes = await Box.list({ label: "factory" })   // BoxData[]: id, name, labels, status
@@ -46,9 +47,13 @@ await Box.delete({ boxIds: [id1, id2] })
 
 // Snapshots
 const snap = await box.snapshot({ name: "worker-base" })     // snap.id
-const fresh = await Box.fromSnapshot(snap.id, { name, labels, runtime: "node" })
+const fresh = await Box.fromSnapshot(snap.id, { name, labels, runtime: "node" })   // `browser` is ignored here
 await box.listSnapshots()          // snapshots taken from THIS Box. There is no account-wide list in the SDK
 await Box.deleteSnapshots({ snapshotIds: [snap.id] })
+
+// Browser. Both need a Box with browser access
+await box.browser.listTabs()                    // does not start Chromium. The factory's "has it got a browser" test
+await box.browser.tab.create("about:blank")     // starts Chromium. The factory does this before each agent run
 ```
 
 Box statuses: `creating`, `idle`, `running`, `paused`, `error`, `deleted`. Pause and resume are not available when a Box is created with `keepAlive`.
@@ -58,6 +63,17 @@ The template's `sh()` helper in `src/box.mjs` wraps `exec.command`: it appends `
 `runScript()` is for everything else: the agent, repo setup, checks and the image build. It writes a bash script into the Box, starts it with `nohup` as a login shell, and polls an exit-code file every ten seconds. A `#STEP name` line in the script body marks a step, and the last step that started is reported back, which is how a failing check is named.
 
 Not used, on purpose: `box.agent.run` and the `agent`, `skills` and `mcpServers` options of `Box.create`. Those configure Upstash's built-in agent runner, which takes provider API keys. The factory runs agent CLIs itself (see `agents.md`). `box.git.*` is also not used, so that the factory controls exactly how the token is handled.
+
+## Browser access
+
+On by default in the template (`factory.browser`). Found the hard way in a real factory, where the first ten workers had to be deleted:
+
+- **It is decided when a Box is created.** `Box.create({ browser: true })` is the only switch. A Box that exists cannot be changed.
+- **`Box.fromSnapshot` ignores `browser: true`.** SDK 0.7.5 copies `name`, `labels`, `size`, `runtime` and a few more into the request, and not `browser`. Read `fromSnapshot` in `node_modules/@upstash/box/dist/client.js` to see whether that has changed.
+- **A snapshot passes on the browser access of the Box it was taken from.** A Box made from a snapshot of a browser-enabled Box has browser access with no option passed. A snapshot of a plain Box can never give one. So the image has to be built in a browser-enabled Box, and `build-snapshot.mjs` refuses to build anywhere else.
+- A Box without it answers browser calls with "browser is not enabled for this box". `hasBrowser()` in `src/box.mjs` calls `box.browser.listTabs()` and reads that error. `BoxData` from `Box.list` also has a `browser` field in the type definitions, but whether the API fills it in was not checked, so the scripts do not rely on it.
+- **Upstash's Chromium starts only when a first tab is opened.** Listing tabs does not start it. Once running, it listens on port 9222 inside the Box. `startBrowser()` opens a blank tab before each agent run. If that fails the job goes on without a browser.
+- A browser tool in the image has to be told to attach to that Chromium. See `worker-image.md`.
 
 ## Facts about a Box
 

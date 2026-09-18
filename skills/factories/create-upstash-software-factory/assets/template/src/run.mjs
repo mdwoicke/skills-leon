@@ -3,7 +3,7 @@
 // Run with: node --env-file=.env src/run.mjs owner/app-repo 12
 import { loadConfig, findRepo } from "./config.mjs"
 import { getIssue, getHumanComments, addLabels, removeLabel, comment, openPullRequest } from "./github.mjs"
-import { claimWorker, releaseWorker, sh, q, runScript } from "./box.mjs"
+import { claimWorker, releaseWorker, sh, q, runScript, startBrowser } from "./box.mjs"
 import { signIn, writeJobFiles, writeRepoEnv, runAgent, secretPaths, REPO_ENV_FILE } from "./agents.mjs"
 
 const WORK_DIR = "/workspace/home/work"
@@ -149,6 +149,9 @@ async function main() {
     console.log(`\nSigning in ${worker.agent} and starting the agent...`)
     await signIn(box, config, worker.agent)
     await writeJobFiles(box, config, worker.agent)
+    // Chromium has to be running before the agent's login shell starts, because
+    // that is when the worker image decides whether a browser tool attaches to it.
+    if (await startBrowser(box, config)) console.log("The Box's browser is running.")
     const timeoutMinutes = config.factory.agentTimeoutMinutes ?? 25
     let result = await runAgent(box, config, worker.agent, { workDir: repoDir, jobDir, prompt: buildPrompt(repo, issue, comments), timeoutMinutes })
     console.log(`Agent finished in ${result.minutes} min with exit code ${result.code}.`)

@@ -70,7 +70,7 @@ Ask these before writing anything. Most have sensible defaults, so offer the def
 5. **Factory repo and ownership.** Name, private or public, and owner. The owner has to be the **same account or organisation that owns the app repos**, because one fine-grained GitHub token covers one owner. Check the name is free and that nothing from an older attempt already exists (an old factory repo, old trigger workflows in the app repos, old Boxes on the Upstash account). Leftovers caused real confusion in the original build.
 6. **Whose name is on the work.** Pull requests and comments appear under the owner of the GitHub token, and commits carry `gitAuthor`. Ask which real person that should be. They need to be a member of any preview-hosting team (see the commit author pitfall), and they cannot approve their own pull requests if the branch requires a review. A dedicated machine user avoids both problems. Use their noreply address, which for newer accounts looks like `12345678+username@users.noreply.github.com`.
 7. **Organisation rules**, if the repos belong to one: does the org allow fine-grained tokens, and does it have to approve them? SSO? Branch rules that would reject a push of `factory/issue-N` (required signed commits, branch name patterns)? An Actions allow-list? Are Actions minutes billed? A run holds a runner for its whole length.
-8. **Worker image.** Beyond toolchains: skills, MCP servers, a browser, another agent CLI? House instruction files such as a `CLAUDE.md` or `AGENTS.md` that they edit often do not go in the image. They become `jobFiles` (`references/config.md`). Read such a file with the user before using it: it will sit in a GitHub repo and run in a Linux Box, so private notes, local paths and references to tools that only exist on their machine should go, and rules that clash with the factory's (commit, push, open pull requests) lose to the factory's prompt. See `references/worker-image.md`.
+8. **Worker image.** Settle what belongs in it now, before any Box exists, because the image is built first and the workers are created from it. Finding out later means deleting and recreating workers. Beyond toolchains: skills, MCP servers, a browser tool, another agent CLI? Browser access itself is on by default for every Box (`factory.browser`). Tell the user so, and that it can only be chosen when a Box is created. It gives the Box a Chromium that Upstash runs and shows in its console. The agent still needs a tool in the image to drive it, such as `agent-browser`. House instruction files such as a `CLAUDE.md` or `AGENTS.md` that they edit often do not go in the image. They become `jobFiles` (`references/config.md`). Read such a file with the user before using it: it will sit in a GitHub repo and run in a Linux Box, so private notes, local paths and references to tools that only exist on their machine should go, and rules that clash with the factory's (commit, push, open pull requests) lose to the factory's prompt. See `references/worker-image.md`.
 9. **Hosting quirks.** Do the app repos deploy previews (Vercel, Netlify) or run review bots? These react to the factory's commits.
 
 ## Before you create any Box or snapshot: ask about model and effort
@@ -89,6 +89,15 @@ The template ships every agent type with `"boxSettings": "ask"`. The config load
 The previews of `smoke-test.mjs`, `provision-workers.mjs` and `build-snapshot.mjs` print the model and effort a Box will get. Show that line to the user before you add `--yes`.
 
 Changing it later: edit `boxSettings`, run `scripts/apply-box-settings.mjs --yes` for the Boxes that exist, and rebuild that agent type's snapshot if it has one.
+
+### Browser access is decided at the same moment
+
+Every Box the factory creates gets browser access, because `factory.browser` defaults to `true`. Leave it on unless the user says no. Unlike the model, it **cannot be changed on a Box that exists**: `Box.create({ browser: true })` is the only switch. Two facts follow, and both cost a full round of deleting and recreating workers in the original build:
+
+- `Box.fromSnapshot` ignores `browser: true`. The SDK does not send it.
+- A Box made from a snapshot has browser access exactly when the Box the snapshot was taken from had it. So an image has to be **built in a browser-enabled Box**. `build-snapshot.mjs` checks that and refuses otherwise.
+
+The same previews print a browser line. `provision-workers.mjs` and `smoke-test.mjs` test every Box they create and stop at the first one without browser access. Details are in `references/upstash-box.md`.
 
 ## Stage 2: scaffold the factory repo
 
@@ -117,7 +126,7 @@ Ask the model and effort question first, because this is the first Box. Then, fo
 node --env-file=.env scripts/smoke-test.mjs claude
 ```
 
-Show the preview, then run it with `--yes`. It creates one Box, prints which toolchains the Box has, writes the agent type's default settings, signs the agent in exactly the way the factory will, asks it to reply `BOX OK`, and deletes the Box. It proves the things most likely to be wrong: the Box key, the agent CLI being present, the sign-in method, and the summary file.
+Show the preview, then run it with `--yes`. It creates one Box, prints which toolchains the Box has, confirms the Box has browser access, writes the agent type's default settings, signs the agent in exactly the way the factory will, asks it to reply `BOX OK`, and deletes the Box. It proves the things most likely to be wrong: the Box key, the agent CLI being present, the sign-in method, and the summary file.
 
 The smoke test creates its Box the way a worker's Box is created, from the agent type's image when one exists. So for an agent whose CLI is not in the stock Box, the order is: build the image first (Stage 6), then run this smoke test, which then starts from the image. To find the right install command beforehand, run the smoke test with `--keep` and try commands by hand with `scripts/box-exec.mjs <box name> "<command>"`.
 
@@ -140,8 +149,8 @@ If no run appears, check in this order: the trigger PR is merged into the defaul
 Do this now if any repo's setup or checks need something a stock Box lacks (the smoke test printed what it has), if an agent CLI was missing, or if the user asked for skills, MCP servers or a browser. Otherwise skip it. It can be added later.
 
 1. Edit `worker/setup.sh`. Read `references/worker-image.md` first. It covers what belongs in an image and the facts about Boxes that decide how the script has to be written.
-2. Create one worker's Box: `node --env-file=.env scripts/provision-workers.mjs <worker id> --yes`.
-3. Build: `node --env-file=.env scripts/build-snapshot.mjs <worker id>`, show the preview, then `--yes`. It runs the setup in that Box, writes the agent type's `boxSettings`, removes secrets and old workspaces, scans the disk for anything that looks like a secret, takes a snapshot and saves its id as `agents.<name>.snapshotId`. Commit the config.
+2. Create one worker's Box and no more: `node --env-file=.env scripts/provision-workers.mjs <worker id> --yes`. The other workers wait until the image exists. This Box gets browser access from `factory.browser`, and the image passes that on to every worker.
+3. Build: `node --env-file=.env scripts/build-snapshot.mjs <worker id>`, show the preview, then `--yes`. It checks that the Box has browser access, runs the setup in that Box, writes the agent type's `boxSettings`, removes secrets and old workspaces, scans the disk for anything that looks like a secret, takes a snapshot and saves its id as `agents.<name>.snapshotId`. Commit the config.
 4. Repeat steps 2 and 3 once per agent type that should have an image. With `--shared` the script builds one tools-only image for all agent types instead, saved as `factory.snapshotId`.
 5. Verify inside the Box with `scripts/box-exec.mjs`: tool versions, and a real action with each tool.
 
@@ -182,6 +191,7 @@ Warn the user beforehand that parallel PRs in one small repo touch the same file
 - **Add workers:** add lines to `workers`, check the Box limit, ask the model and effort question if it is a new kind of worker, run `provision-workers.mjs --yes`.
 - **Add an agent type:** read `references/agents.md`, add it to `agents` with `"boxSettings": "ask"`, ask the model question, run the smoke test, then `install-trigger.mjs --yes` for its label and `set-secrets.mjs --yes` for its secret.
 - **Change a model or effort:** edit the agent type's `boxSettings`, run `apply-box-settings.mjs --yes`, and rebuild that agent type's snapshot if it has one.
+- **Give existing workers browser access:** it cannot be switched on for a Box that exists, and an image built in a Box without it never passes it on. Set `"browser": true`, take the `snapshotId` values out of the config, have the user delete the workers (`delete-workers.mjs --yes`), create one plain Box, rebuild the image in it, then create the rest. See `references/worker-image.md`.
 - **Change who may start it:** edit `allowedActors`, run `install-trigger.mjs --yes`, merge the PRs.
 - **Something is broken:** read `references/pitfalls.md` first. Most failures seen so far are listed there with their cause.
 

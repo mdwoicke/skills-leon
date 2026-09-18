@@ -12,6 +12,7 @@
     "allowedActors": [
       "OWNER"
     ],
+    "browser": true,
     "waitForWorkerMinutes": 20,
     "agentTimeoutMinutes": 25,
     "commandTimeoutMinutes": 15

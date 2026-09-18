@@ -10,7 +10,7 @@
 // seconds earlier and holds nothing. With --keep it is paused instead, and
 // scripts/box-exec.mjs can reach it by its name.
 import { loadConfig } from "../src/config.mjs"
-import { sh, createAgentBox, describeBoxSettings, requireBoxSettings, imageFor } from "../src/box.mjs"
+import { sh, createAgentBox, describeBoxSettings, requireBoxSettings, imageFor, wantsBrowser, hasBrowser, browserMissingHelp } from "../src/box.mjs"
 import { signIn, writeJobFiles, runAgent, secretPaths } from "../src/agents.mjs"
 
 const config = loadConfig()
@@ -25,6 +25,7 @@ requireBoxSettings(config, agentName)
 const name = `${config.factory.boxNamePrefix}smoke-${agentName}`
 console.log(`Box to create: ${name}, from ${imageFor(config, agentName) ? "this agent type's worker image" : "the stock Upstash image"}`)
 console.log(`Model and effort for this agent type: ${describeBoxSettings(config, agentName)}`)
+console.log(`Browser access: ${wantsBrowser(config) ? "on" : 'off ("browser": false in the config)'}`)
 console.log(`At the end the Box is ${keep ? "paused and kept" : "deleted"}.`)
 if (!process.argv.includes("--yes")) {
   console.log("\nPreview only. Add --yes to run the test. It uses one Box slot and a little of the agent's quota.")
@@ -43,6 +44,13 @@ try {
     'echo "user=$(whoami) home=$HOME arch=$(uname -m)"; for t in node npm pnpm yarn bun python3 pip3 go cargo java make gcc docker; do printf "%s: " $t; ($t --version 2>/dev/null || $t version 2>/dev/null || echo "not installed") | head -n 1; done; printf "git credential helper: "; git config --global --get credential.helper || echo none',
   )
   console.log(facts.output)
+
+  // Browser access is fixed at creation, so a worker created the same way
+  // would lack it too.
+  if (wantsBrowser(config)) {
+    if (!(await hasBrowser(box))) throw new Error(`This Box has no browser access although the config asks for it. ${browserMissingHelp(config, agentName)}`)
+    console.log("browser access: yes")
+  }
 
   // The CLI is the first word of the command, unless the config names it with "cli".
   const binary = config.agents[agentName].cli ?? config.agents[agentName].command.trim().split(/\s+/)[0]

@@ -19,12 +19,25 @@ add_skill() {
 }
 # add_skill https://github.com/anthropics/skills frontend-design
 
-# --- A browser for agents that check their own work (example) ---------------
-# Chrome has no ARM64 Linux download, so use Debian's Chromium.
+# --- A browser tool for agents that check their own work (example) ----------
+# The Box itself has browser access ("browser": true in factory.config.json,
+# the default): Upstash runs a Chromium that the factory starts before each job
+# and that then listens on port 9222. This installs the tool the agent drives it
+# with. Build this image in a Box that has browser access, because every Box
+# made from the image gets the browser access of the Box it was built in.
+#
+# Auto-connect makes agent-browser attach to Upstash's Chromium, so the Upstash
+# console shows what the agent does. With auto-connect on and no Chromium
+# running it fails instead of starting one, so it is switched on only when port
+# 9222 answers. Otherwise agent-browser starts Debian's Chromium (Chrome has no
+# ARM64 Linux download).
 # sudo apt-get update -qq
 # sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium > /dev/null
 # sudo npm install --global --silent agent-browser
-# echo "export AGENT_BROWSER_EXECUTABLE_PATH=$(command -v chromium)" | sudo tee /etc/profile.d/agent-browser.sh > /dev/null
+# sudo tee /etc/profile.d/agent-browser.sh > /dev/null <<'PROFILE'
+# export AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+# if (exec 3<>/dev/tcp/127.0.0.1/9222) 2>/dev/null; then export AGENT_BROWSER_AUTO_CONNECT=1; fi
+# PROFILE
 
 # --- Another agent CLI (example) ---------------------------------------------
 # sudo npm install --global --silent opencode-ai

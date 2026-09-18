@@ -14,7 +14,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { Box } from "@upstash/box"
 import { loadConfig, boxNameFor } from "../src/config.mjs"
-import { sh, runScript, applyBoxSettings, describeBoxSettings, requireBoxSettings } from "../src/box.mjs"
+import { sh, runScript, applyBoxSettings, describeBoxSettings, requireBoxSettings, wantsBrowser, hasBrowser } from "../src/box.mjs"
 import { getWorkerStates } from "../src/workers.mjs"
 import { secretPaths } from "../src/agents.mjs"
 
@@ -40,6 +40,7 @@ console.log(`Image:         ${shared ? "shared by every agent type" : `for agent
 console.log(`Built in:      ${boxNameFor(config, worker)} (${worker.boxId})`)
 console.log(`Setup script:  ${setupPath}`)
 console.log(`Baked in:      ${shared ? "tools only. A shared image holds no model settings" : describeBoxSettings(config, worker.agent)}`)
+console.log(`Browser:       ${wantsBrowser(config) ? "on. The image passes on the browser access of the Box it is built in, so that is checked first" : 'off ("browser": false in the config)'}`)
 if (!process.argv.includes("--yes")) {
   console.log("\nPreview only. Add --yes to build.")
   process.exit(0)
@@ -50,6 +51,13 @@ await box.labels.add(config.factory.busyLabel) // keeps the factory away while w
 
 try {
   if (worker.boxStatus === "paused") await box.resume()
+
+  // Every Box made from this image gets the browser access of this Box, and
+  // nothing passed to Box.fromSnapshot changes that. So an image built here
+  // without it could never give a worker a browser.
+  if (wantsBrowser(config) && !(await hasBrowser(box))) {
+    throw new Error(`${boxNameFor(config, worker)} was created without browser access, and the image would pass that on to every worker. Browser access cannot be added to an existing Box. The user deletes this one (scripts/delete-workers.mjs ${workerId} --yes), then create it again as a plain Box: scripts/provision-workers.mjs ${workerId} --yes, with any snapshotId removed from factory.config.json first if the old image was built the same way. Or set "browser": false under "factory". No snapshot was taken.`)
+  }
 
   const setup = readFileSync(new URL(setupPath, config.baseUrl), "utf8").replace(/\r\n/g, "\n")
   await box.files.write({ path: "/workspace/home/.image-build/setup.sh", content: setup })

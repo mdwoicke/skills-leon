@@ -113,6 +113,15 @@ Do not install them again. An `npm install -g` without sudo fails with a permiss
 **Boxes are ARM64 Debian.**
 Chrome for Testing has no ARM64 Linux build, so tools that download their own Chrome fail. Install Debian's `chromium` with apt. `boxuser` has passwordless sudo.
 
+**Workers without browser access, and no way to add it.**
+The first factory created its Boxes and its image without `browser: true`. Browser calls answered "browser is not enabled for this box". Setting the option and recreating a worker from the same image changed nothing, because `Box.fromSnapshot` does not send `browser` and a snapshot passes on the browser access of the Box it was taken from. It took two rounds of deleting and recreating workers, and a new image built in a browser-enabled Box, to fix. Now `factory.browser` defaults to `true`, `build-snapshot.mjs` refuses to build in a Box without browser access, and `provision-workers.mjs` and `smoke-test.mjs` test each Box they create.
+
+**The Box's Chromium is not running until a tab is opened.**
+Listing tabs does not start it, so a tool that attaches to port 9222 finds nothing at the start of a job. The factory opens a blank tab before each agent run (`startBrowser` in `src/box.mjs`).
+
+**`agent-browser` with auto-connect on fails when there is nothing to attach to.**
+It does not fall back to starting its own browser. The image turns auto-connect on only when port 9222 answers.
+
 **Labels are limited.**
 At most five labels per Box, at most 20 characters each. The claiming protocol uses up to five: factory label, agent label, `busy`, and up to two `run-` labels during a collision.
 

@@ -119,9 +119,47 @@ export function describeBoxSettings(config, agentName) {
   return settings.map((s) => `${s.path.split("/").pop()}: ${s.values ? JSON.stringify(s.values) : "custom file"}`).join("; ")
 }
 
-// Options for every Box this factory creates.
+// Browser access (Upstash's own Chromium, `box.browser`) is on unless the config
+// says otherwise. It is fixed when a Box is created and cannot be added later.
+export const wantsBrowser = (config) => config.factory.browser ?? true
+
+// Options for every Box this factory creates. `browser` only counts in
+// Box.create. Box.fromSnapshot does not send it: a Box made from a snapshot has
+// browser access exactly when the Box the snapshot was taken from had it.
 export function boxOptions(config, name, labels) {
-  return { name, labels, runtime: config.factory.runtime ?? "node", timeout: BOX_TIMEOUT_MS }
+  return { name, labels, runtime: config.factory.runtime ?? "node", browser: wantsBrowser(config), timeout: BOX_TIMEOUT_MS }
+}
+
+// Whether a Box has browser access. Listing tabs does not start Chromium, and a
+// Box without browser access answers "browser is not enabled for this box".
+export async function hasBrowser(box) {
+  try {
+    await box.browser.listTabs()
+    return true
+  } catch (error) {
+    if (/not enabled/i.test(error.message)) return false
+    throw error
+  }
+}
+
+// What to tell someone whose Box lacks the browser access the config asks for.
+export const browserMissingHelp = (config, agentName) =>
+  imageFor(config, agentName)
+    ? `It came from a worker image, and an image passes on the browser access of the Box it was built in. Passing browser: true to Box.fromSnapshot changes nothing. Delete this Box, create a plain browser-enabled one (remove the snapshotId from factory.config.json for a moment), rebuild the image in it with scripts/build-snapshot.mjs, then create the workers from the new image.`
+    : `Browser access cannot be added to an existing Box. Delete this Box and create it again (the user runs scripts/delete-workers.mjs, then scripts/provision-workers.mjs), or set "browser": false under "factory" if these workers should not have one.`
+
+// Upstash's Chromium only starts when a first tab is opened. After that it
+// listens on port 9222 inside the Box, where a tool such as agent-browser can
+// attach to it. A job goes on without a browser when this fails.
+export async function startBrowser(box, config) {
+  if (!wantsBrowser(config)) return false
+  try {
+    await box.browser.tab.create("about:blank")
+    return true
+  } catch (error) {
+    console.warn(`Could not start the Box's browser (${error.message}). The job goes on without it.`)
+    return false
+  }
 }
 
 // Creates a worker's Box. An agent type can have its own worker image

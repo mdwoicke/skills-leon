@@ -38,6 +38,12 @@ export function loadConfig(file = CONFIG_FILE) {
     errors.push("factory.allowedActors needs the real GitHub usernames that may start the factory")
   }
 
+  // Left out means true. Browser access is fixed when a Box is created, so the
+  // default is the choice that never forces anyone to delete Boxes later.
+  if (config.factory.browser !== undefined && typeof config.factory.browser !== "boolean") {
+    errors.push('factory.browser must be true or false. It gives every Box browser access, and the default is true')
+  }
+
   for (const [name, agent] of Object.entries(config.agents)) {
     // Box labels are at most 20 characters, and each Box gets "agent-<name>".
     if (!/^[a-z0-9-]{1,14}$/.test(name)) errors.push(`agent name "${name}" must be 1-14 lowercase letters, digits or dashes`)
